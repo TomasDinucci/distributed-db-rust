@@ -1,93 +1,112 @@
-# Taller de Programación: Delfi-y-sus-umpalumpas
+# Aerolíneas Rústicas: Distributed Database Engine
 
-## Integrantes
-- Borthaburu, Isidro Héctor
-- Cano Ros Langrehr, María Delfina
-- Di Nucci, Tomás Franco
-- Wainwright, Martín
+> A Cassandra-compatible distributed database engine built from scratch in Rust, with a full airline operations demo application.
 
-## Descripción
+![Rust](https://img.shields.io/badge/Rust-000000?style=flat&logo=rust&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-Este proyecto implementa un sistema de manejo de información para una aerolínea. Entre sus módulos se incluyen funcionalidades para manejar aviones, aeropuertos, una interfaz gráfica de usuario, y un sistema de nodos de Cassandra que interactúan con un protocolo de consulta tipo CQL. Los nodos del sistema pueden ejecutarse como servidores en distintos puertos y se comunican para procesar las operaciones.
+---
 
-## Estructura del Proyecto
-El proyecto está organizado en varios módulos, entre ellos:
+## Overview
 
-cliente: Implementa el cliente que interactúa con el sistema.
-error_codes: Define códigos de error específicos.
-message: Maneja la serialización y deserialización de mensajes entre nodos.
-servidor: Ejecuta el servidor y maneja las conexiones de los nodos.
-auth_challenge: Implementa los desafíos de autenticación.
-ui_grafica: Contiene la implementación de la interfaz gráfica.
-avion y aeropuerto: Módulos para gestionar entidades relacionadas con aviones y aeropuertos.
-CQL:
-ejecutor: Ejecuta consultas en los nodos de Cassandra.
-error: Maneja errores en el procesamiento de consultas.
-nodo_cassandra: Implementa la lógica para los nodos del sistema.
-parser y postfija: Encargados de la interpretación de consultas tipo CQL.
+This project implements a distributed, fault-tolerant database system modeled after Apache Cassandra, written entirely in Rust. It includes a custom CQL parser, a replication engine, TLS-secured inter-node communication, and a read-repair mechanism, all built from the ground up without relying on existing database libraries.
 
+The system is demonstrated through an airline operations application that tracks live flights and airport activity across a distributed cluster.
 
-## Cómo usar
+---
 
-### Compilación
+## Features
 
-Para compilar el programa, usa el comando:
-```bash
-cargo build --bin tp_aerolineas
+### Database Engine
+- **CQL support**: parses and executes `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE KEYSPACE`, and `CREATE TABLE` statements, including `WHERE` clauses, `PRIMARY KEY` definitions, and `USING CONSISTENCY` directives
+- **Keyspace & table management**: supports multiple keyspaces with independent schemas and replication settings
+- **Configurable replication**: `SimpleStrategy` replication with a tunable replication factor per keyspace
+- **Consistency levels**: `ONE`, `QUORUM`, and `ALL` consistency levels on reads and writes
+- **Read-repair**: detects and corrects stale replicas on read, keeping data consistent across the cluster
+
+### Distributed Systems
+- **Peer-to-peer cluster**: nodes communicate directly with each other; no single point of coordination
+- **Dynamic cluster membership**: nodes can be added or removed at runtime via the `ADAPT` flag without a full cluster restart
+- **Partitioning**: data is distributed across nodes using a deterministic partitioning scheme based on the primary key
+- **Message serialization**: custom binary protocol for inter-node communication with full serialization/deserialization
+
+### Security
+- **TLS encryption**: all inter-node and client-node traffic is encrypted using TLS with EC keys (prime256v1)
+- **Authentication challenges**: nodes authenticate each other before accepting connections
+
+### Infrastructure
+- **Thread pool**: custom-built thread pool for handling concurrent client connections
+- **Docker deployment**: each node runs in its own container; the cluster is orchestrated with `docker-compose`
+- **Structured logging**: per-node logs for observing replication, repairs, and cluster events
+
+### Demo Application
+- Real-time flight tracking GUI
+- Airport and aircraft management modules
+- Two independent keyspaces: live flights and aircraft on the ground
+
+---
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Clients
+        A[CQL Client / CLI]
+        B[GUI\nFlight Tracker]
+        C[Airport / Aircraft\nModules]
+    end
+
+    subgraph Cluster ["Cluster (TLS mesh)"]
+        N0[Node :8080]
+        N1[Node :8081]
+        N2[Node :8082]
+        N3[Node :8083]
+        N4[Node :8084]
+        N5[Node :8085]
+
+        N0 <-->|TLS| N1
+        N0 <-->|TLS| N2
+        N0 <-->|TLS| N3
+        N1 <-->|TLS| N2
+        N1 <-->|TLS| N4
+        N2 <-->|TLS| N5
+        N3 <-->|TLS| N4
+        N4 <-->|TLS| N5
+    end
+
+    A -->|CQL| N0
+    B -->|CQL| N0
+    C -->|CQL| N0
 ```
 
-### Ejecucion
-Para ejecutar el programa, utiliza el siguiente formato en el directorio raíz del proyecto:
+Each node stores its data shard locally and replicates writes to the appropriate replica nodes based on the replication factor. Reads can trigger repair if a replica is found to be behind.
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (stable)
+- [Docker](https://docs.docker.com/get-docker/) + docker-compose
+
+### TLS Setup
+
+Generate the self-signed certificate used by the nodes:
+
 ```bash
-cargo run --bin tp_aerolineas [opción]
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+  -keyout server.key -out server.crt -nodes -days 36500 -config openssl.cnf
 ```
 
-Donde [opción] puede ser:
+`openssl.cnf` example:
 
-grafica: Ejecuta la interfaz gráfica de usuario.
-avion: Ejecuta el módulo de administración de aviones.
-aeropuerto: Ejecuta el módulo de administración de aeropuertos.
-cliente: Ejecuta el cliente para interactuar con los nodos de Cassandra.
-
-Ejecutar nodos:
-```bash
-cargo run --bin tp_aerolineas [nodo] [cantidad]
-```
-[nodo]: Ejecuta un nodo de Cassandra, donde [nodo] es un puerto en el rango 8080 a 8087.
-[cantidad]: Define cantidad de nodos de Cassandra.
-Por ejemplo, para iniciar un nodo de Cassandra en el puerto 8080, usa:
-```bash
-cargo run --bin tp_aerolineas 8080 6
-```
-Cada nodo debe iniciarse en su propia carpeta dentro del directorio tp_aerolineas/nodos/, en una subcarpeta con el formato nodo808X, donde X corresponde al número del puerto.
-
-Ejemplo para el nodo en el puerto 8080:
-```bash
-mkdir -p tp_aerolineas/nodos/nodo8080
-cd tp_aerolineas/nodos/nodo8080
-cargo run --bin tp_aerolineas 8080 6
-```
-
-### Requisitos
-
-Asegúrate de tener Rust instalado y configurado en tu entorno. Para compilar y ejecutar correctamente, utiliza cargo, el gestor de paquetes de Rust.
-
-## ENCRIPTACION
-Comandos a ejecutar:
-
-```bash
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -keyout server.key -out server.crt -nodes -days 36500 -config openssl.cnf
-chequear que este bien:
-openssl x509 -in server.crt -text -noout
-openssl ec -in server.key -text -noout
-```
-
-# openssl.cnf
-```bash
+```ini
 [ req ]
 distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
+x509_extensions    = v3_req
+prompt             = no
 
 [ req_distinguished_name ]
 CN = localhost
@@ -97,141 +116,154 @@ subjectAltName = @alt_names
 
 [ alt_names ]
 DNS.1 = localhost
-IP.1 = 127.0.0.1
-IP.2 = 127.0.0.1
-IP.3 = 127.0.0.1
-IP.4 = 127.0.0.1
-IP.5 = 127.0.0.1
-IP.6 = 127.0.0.1
-IP.7 = 127.0.0.1
-IP.8 = 127.0.0.1
-IP.9 = 127.0.0.1
-IP.10 = 127.0.0.1
+IP.1  = 127.0.0.1
 ```
 
+### Running with Docker (recommended)
 
-# **Cómo Usar el Proyecto con Docker**
+```bash
+# Clean up any previous state
+docker-compose down -v
 
-Esta seccion explica cómo compilar, ejecutar y utilizar el programa utilizando Docker y docker-compose. Los nodos se levantan en contenedores separados mediante Docker, mientras que los módulos principales se ejecutan directamente con cargo run.
-
----
-
-## **Requisitos**
-
-- **Docker**: Asegúrate de tener Docker instalado y configurado correctamente en tu sistema.
-- **docker-compose**: Instala la versión correspondiente para trabajar con los archivos de configuración.
-- **Rust**: Debes tener Rust instalado para ejecutar los módulos principales con cargo.
-
----
-
-## **Compilación**
-
-Para compilar las imágenes de Docker necesarias para los nodos, usa el siguiente comando desde el directorio raíz del proyecto:
-
+# Build node images
 docker-compose build
 
-Este comando generará las imágenes requeridas para los nodos de Cassandra.
-
----
-
-## **Ejecución**
-
-### Inicialización y Precaución
-Antes de levantar los nodos, siempre ejecutar el siguiente comando para asegurarse de que no haya contenedores o volúmenes previos que puedan generar conflictos:
-
-docker compose down -v
-
-### **Levantar los Nodos**
-Los nodos de Cassandra deben levantarse en **terminales separadas** utilizando docker-compose. Cada nodo utiliza su propia subcarpeta en tp_aerolineas/nodos/nodo808X, donde **X** corresponde al número del puerto.
-
-Además, es necesario configurar el número de nodos a levantar y definir si la opción de adaptación (adapt) estará activada. Esto se realiza mediante una serie de dos comandos, dependiendo del sistema operativo utilizado.
-
-Configuraciones según el sistema operativo
-#### Para MacOS:
-
-Para definir 4 nodos y activar la adaptación, ejecutar:
-
-export NODOS=4
-export ADAPT=1
-
-### Para Unix/Linux (para levantar 6 nodos y desactivar adaptación):
-Para definir 6 nodos y desactivar la adaptación, ejecutar:
-
+# Set cluster size and adaptation mode
 echo "NODOS=6" > .env
 echo "ADAPT=0" >> .env
 
+# Start each node in a separate terminal
+docker-compose up nodo8080
+docker-compose up nodo8081
+docker-compose up nodo8082
+docker-compose up nodo8083
+docker-compose up nodo8084
+docker-compose up nodo8085
+```
 
-Ejemplo de comandos para iniciar los nodos despues:
+Wait a few seconds for all nodes to initialize before sending queries.
 
-- **Terminal 1**:
-  docker-compose up nodo8080
+### Running the Application Modules
 
-- **Terminal 2**:
-  docker-compose up nodo8081
+From `./tp_aerolineas/`:
 
-- **Terminal 3**:
-  docker-compose up nodo8082
-
-- **Terminal 4**:
-  docker-compose up nodo8083
-
-Asi sucesivamente los nodos necesarios
-
-Espera unos segundos para asegurarte de que los nodos estén completamente inicializados antes de proceder.
-
----
-
-### **Ejecutar los Módulos Principales**
-
-Una vez que los nodos estén activos, puedes ejecutar los módulos principales del programa utilizando cargo run dentro de la carpeta de ./tp_aerolineas/. Los módulos disponibles son:
-
-#### **Avión**
-Para ejecutar el módulo de administración de aviones:
-cargo run --bin tp_aerolineas avion
-
-#### **Aeropuerto**
-Para ejecutar el módulo de administración de aeropuertos:
-cargo run --bin tp_aerolineas aeropuerto
-
-#### **Interfaz Gráfica**
-Para ejecutar la interfaz gráfica de usuario:
-cargo run --bin tp_aerolineas grafica
-
----
-
-## Como testear
-
-1. **Apagar y limpiar los contenedores activos** (si los hay):  
-   Ejecuta el siguiente comando desde el directorio raíz del proyecto:  
-
-   docker-compose down
-
-2. **Compilar las imágenes de Docker**:  
-    Desde el directorio raíz del proyecto, ejecuta:
-
-    docker-compose build
-
-3. **Levantar los Nodos de Prueba**:  
-    El proyecto requiere levantar varios nodos de prueba, ubicados en tp_aerolineas/tests/nodos/nodo808X, donde X va de 0 a 3.
-    Para esto, utiliza el siguiente comando en cuatro terminales diferentes:
-
-    docker-compose up nodo808X
-
-4. **Ejecución de los Tests**:  
-    Una vez que los nodos están activos, abre una quinta terminal y 
-    ejecuta el siguiente comando desde el directorio raíz del proyecto:
-
-    cd tp_aerolineas
-    cargo test
-
-
-### Ejemplo con ui, se necesita ejecutar como cliente de anet mano antes de 
 ```bash
+cargo run --bin tp_aerolineas cliente     # CQL shell
+cargo run --bin tp_aerolineas grafica     # Flight tracking GUI
+cargo run --bin tp_aerolineas avion       # Aircraft management
+cargo run --bin tp_aerolineas aeropuerto  # Airport management
+```
+
+### Running Nodes Locally (no Docker)
+
+```bash
+mkdir -p tp_aerolineas/nodos/nodo8080
+cd tp_aerolineas/nodos/nodo8080
+cargo run --bin tp_aerolineas 8080 6
+```
+
+Repeat for each node port (8080–8085), each in its own directory and terminal.
+
+---
+
+## Schema Setup
+
+Connect with the CQL client and run:
+
+```sql
 CREATE KEYSPACE keyspace1 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 3};
-CREATE TABLE keyspace1.aviones_volando (    flight_number INT,    origin VARCHAR(100),    destination VARCHAR(100),    lat FLOAT,    lon VARCHAR(100),    altitude VARCHAR(100),    speed INT,     airline VARCHAR(100),    direction VARCHAR(50),    fuel_percentage FLOAT,   status VARCHAR(100),  fecha VARCHAR(100),   PRIMARY KEY ((flight_number, origin, destination), origin, fecha));
+
+CREATE TABLE keyspace1.aviones_volando (
+  flight_number   INT,
+  origin          VARCHAR(100),
+  destination     VARCHAR(100),
+  lat             FLOAT,
+  lon             VARCHAR(100),
+  altitude        VARCHAR(100),
+  speed           INT,
+  airline         VARCHAR(100),
+  direction       VARCHAR(50),
+  fuel_percentage FLOAT,
+  status          VARCHAR(100),
+  fecha           VARCHAR(100),
+  PRIMARY KEY ((flight_number, origin, destination), origin, fecha)
+);
+
+CREATE KEYSPACE keyspace2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 3};
+
+CREATE TABLE keyspace2.aviones_en_aeropuerto (
+  flight_number VARCHAR(100),
+  origin        VARCHAR(100),
+  destination   VARCHAR(100),
+  airline       VARCHAR(100),
+  departure     VARCHAR(100),
+  state         VARCHAR(100),
+  fecha         VARCHAR(100),
+  PRIMARY KEY ((flight_number, origin), origin, fecha)
+);
 ```
 
+---
+
+## Dynamic Cluster Resizing
+
+The cluster supports live node addition and removal via the `ADAPT` flag.
+
+**Remove nodes**: set `NODOS=4` and `ADAPT=1`, then bring down the nodes no longer in use. Queries will stop routing to them.
+
+**Add nodes**: set `NODOS=6` and `ADAPT=1`, then start the new node containers. The cluster will incorporate them.
+
+Logs inside each node's folder record replication and repair events during adaptation.
+
+---
+
+## Read-Repair Demo
+
+1. Start all 6 nodes and run `aeropuerto` to generate writes
+2. Kill node `nodo8081`
+3. Stop `aeropuerto`
+4. Open the CQL client and query a record:
+   ```sql
+   SELECT * FROM keyspace1.aviones_volando USING CONSISTENCY ONE
+   WHERE flight_number = 'EK333';
+   ```
+5. Restart node `nodo8081` and send the same query again: the node will receive the repaired data
+
+---
+
+## Running Tests
+
 ```bash
-CREATE KEYSPACE keyspace2 WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 3};
-CREATE TABLE keyspace2.aviones_en_aeropuerto ( flight_number VARCHAR(100), origin VARCHAR(100), destination VARCHAR(100), airline VARCHAR(100), departure VARCHAR(100), state VARCHAR(100), fecha VARCHAR(100), PRIMARY KEY ((flight_number, origin), origin, fecha));
+# Start 4 test nodes
+docker-compose up nodo8080
+docker-compose up nodo8081
+docker-compose up nodo8082
+docker-compose up nodo8083
+
+# In a fifth terminal
+cd tp_aerolineas
+cargo test
 ```
+
+---
+
+## Background
+
+This project originated as the final assignment for the *Taller de Programación* course at [FIUBA](https://fi.uba.ar/) (Universidad de Buenos Aires, Faculty of Engineering), built in 2024 by:
+
+- Borthaburu, Isidro Héctor
+- Cano Ros Langrehr, María Delfina
+- Di Nucci, Tomás Franco
+- Wainwright, Martín
+
+The original submission, with its academic structure and documentation, is preserved in [`ACADEMIC_ORIGIN.md`](./ACADEMIC_ORIGIN.md) and the [PDF reports](./Informe%20Final%20TP%20aerol%C3%ADneas%20r%C3%BAsticas.pdf) included in this repository.
+
+After the course ended, the codebase was taken further: the README was rewritten, the project structure was cleaned up, and additional improvements were made beyond what the original assignment required.
+
+The name *Aerolíneas Rústicas* is a play on **Rust** and *Aerolíneas Argentinas*, the Argentine national airline.
+
+---
+
+## License
+
+[MIT](./LICENSE)
